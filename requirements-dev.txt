@@ -1,0 +1,9 @@
+# Dev-only tooling. Ishlab chiqarishga (runtime) kerak emas.
+#
+# O'rnatish:
+#   pip install -r requirements.txt -r requirements-dev.txt
+
+ruff==0.15.10
+mypy==1.20.1
+pre-commit==4.5.1
+types-cachetools==6.2.0.20250827

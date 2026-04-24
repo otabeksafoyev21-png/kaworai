@@ -1,0 +1,36 @@
+# pre-commit yordam ma'lumoti: https://pre-commit.com/
+# O'rnatish:    pre-commit install
+# Barchasiga:   pre-commit run --all-files
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+      - id: detect-private-key
+      - id: mixed-line-ending
+        args: ["--fix=lf"]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.10
+    hooks:
+      - id: ruff-check
+        args: ["--fix"]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.20.1
+    hooks:
+      - id: mypy
+        additional_dependencies:
+          - types-cachetools
+          - pydantic-settings==2.5.2
+        # Only lint touched files during commit for speed; CI runs a full
+        # pass over the whole tree.
+        args: ["--follow-imports=silent"]
