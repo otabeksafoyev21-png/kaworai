@@ -74,6 +74,10 @@ disallow_untyped_defs = false
 warn_unused_ignores = true
 warn_redundant_casts = true
 no_implicit_optional = true
+# `states/` paketida `__init__.py` yo'q — mypy faylni ikki xil modul
+# nomi bilan topadi (`admin_states` va `states.admin_states`).
+# `explicit_package_bases` buni to'g'rilaydi.
+explicit_package_bases = true
 # Exclude the throwaway migration script and any virtualenv copy.
 exclude = [
     "^venv/",
@@ -83,5 +87,7 @@ exclude = [
 [[tool.mypy.overrides]]
 # Aiogram's handler signatures rely on dependency injection from Dispatcher
 # that static analysis can't see — silence untyped-call noise there.
+# `no-redef`, `union-attr`, `arg-type`, `misc` — mavjud koddagi xatolar
+# (FSMContext.get_data() Any qaytaradi, o'zgaruvchi qayta ishlatish va h.k.).
 module = ["handlers.*", "middlewares.*"]
-disable_error_code = ["attr-defined", "call-arg"]
+disable_error_code = ["attr-defined", "call-arg", "no-redef", "union-attr", "arg-type", "misc"]

@@ -36,6 +36,7 @@ from database.queries import (
 from handlers.genres import GENRES, normalize_genre
 from handlers.users import mark_admin_active, mark_admin_inactive
 from states.admin_states import (
+    AddAdState,
     AddAnime,
     AddChannel,
     AddEpisodeState,
@@ -122,6 +123,8 @@ ADMIN_REPLY_BUTTONS: set[str] = {
     "👑 Pro boshqaruv",
     "🏆 Top 18",
     "🗄 Baza zaxira",
+    "📣 Reklamalar",
+    "🌍 Regionlar",
     "🔙 Chiqish",
     "🚫 Bekor qilish",
 }
@@ -570,7 +573,8 @@ admin_main_kb = ReplyKeyboardMarkup(
         [KeyboardButton(text="🗂 Kontent boshqaruv"), KeyboardButton(text="📢 Kanallar")],
         [KeyboardButton(text="👑 Pro boshqaruv"), KeyboardButton(text="✉️ Xabar yuborish")],
         [KeyboardButton(text="🗄 Baza zaxira"), KeyboardButton(text="📊 Statistika")],
-        [KeyboardButton(text="🏆 Top 18"), KeyboardButton(text="🔙 Chiqish")],
+        [KeyboardButton(text="🏆 Top 18"), KeyboardButton(text="📣 Reklamalar")],
+        [KeyboardButton(text="🌍 Regionlar"), KeyboardButton(text="🔙 Chiqish")],
     ],
     resize_keyboard=True,
 )
@@ -5147,9 +5151,12 @@ async def confirm_del_eps(call: types.CallbackQuery):
 async def show_stats(msg: Message):
     if not await is_admin(msg.from_user.id):
         return
+    from database.queries import get_pro_user_count, get_today_active_users
+
     async with AsyncSessionLocal() as session:
         u_count = await session.scalar(select(func.count(User.telegram_id)))
-        pro_count = await session.scalar(select(func.count(User.telegram_id)).where(User.is_pro == True))
+        pro_count = await get_pro_user_count(session)
+        today_active = await get_today_active_users(session)
         a_count = await session.scalar(select(func.count(Anime.id)))
         locked_count = await session.scalar(select(func.count(Anime.id)).where(Anime.is_pro_locked == True))
         s_count = await session.scalar(select(func.count(Series.id)))
@@ -5157,7 +5164,8 @@ async def show_stats(msg: Message):
     await msg.answer(
         f"📊 <b>Kaworai Statistika</b>\n\n"
         f"👤 Foydalanuvchilar: <b>{u_count}</b>\n"
-        f"⭐ Pro: <b>{pro_count}</b>\n\n"
+        f"⭐ Pro: <b>{pro_count}</b>\n"
+        f"🟢 Bugun faol: <b>{today_active}</b>\n\n"
         f"🎬 Kontent: <b>{a_count}</b>\n"
         f"  🔒 Pro-locked: {locked_count}\n"
         f"🎞 Qismlar: <b>{s_count}</b>\n"
@@ -5555,6 +5563,172 @@ async def ch_region_pick(call: types.CallbackQuery, state: FSMContext):
         owner_id=owner_id,
     )
     await call.answer()
+
+
+# ═══════════════════════════════════════════════════════════
+#  REKLAMA BOSHQARUV
+# ═══════════════════════════════════════════════════════════
+
+
+@admin_router.message(F.text == "📣 Reklamalar")
+async def ad_manager(msg: Message):
+    if not await is_admin(msg.from_user.id):
+        return
+    from database.queries import get_all_ads
+
+    async with AsyncSessionLocal() as session:
+        ads = await get_all_ads(session)
+
+    if not ads:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="➕ Reklama qo'shish", callback_data="add_ad", style="success")]
+            ]
+        )
+        return await msg.answer("📣 Hozircha reklamalar yo'q.\nQo'shish uchun tugmani bosing.", reply_markup=kb)
+
+    text = "📣 <b>Reklamalar:</b>\n\n"
+    kb_builder = InlineKeyboardBuilder()
+    for ad in ads:
+        st = "✅" if ad.is_active else "⛔"
+        url_str = " | 🔗" if ad.url else ""
+        text += f"{st} #{ad.id}: {ad.text[:50]}{url_str}\n"
+        btn_t = "⛔ O'chir" if ad.is_active else "✅ Yoq"
+        kb_builder.row(
+            InlineKeyboardButton(text=f"{btn_t} #{ad.id}", callback_data=f"toggle_ad_{ad.id}", style="primary"),
+            InlineKeyboardButton(text=f"🗑 #{ad.id}", callback_data=f"del_ad_{ad.id}", style="danger"),
+        )
+    kb_builder.row(InlineKeyboardButton(text="➕ Reklama qo'shish", callback_data="add_ad", style="success"))
+    await msg.answer(text, reply_markup=kb_builder.as_markup(), parse_mode="HTML")
+
+
+@admin_router.callback_query(F.data == "add_ad")
+async def add_ad_start(call: types.CallbackQuery, state: FSMContext):
+    if not await is_admin(call.from_user.id):
+        return
+    await state.set_state(AddAdState.waiting_text)
+    await call.message.answer("📝 Reklama matnini yuboring:", reply_markup=cancel_kb)
+    await call.answer()
+
+
+@admin_router.message(AddAdState.waiting_text)
+async def ad_text_handler(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    if msg.text == "🚫 Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor.", reply_markup=admin_main_kb)
+    await state.update_data(ad_text=msg.text)
+    await state.set_state(AddAdState.waiting_url)
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="⏭ URLsiz", callback_data="ad_skip_url", style="primary")]]
+    )
+    await msg.answer("🔗 Reklama URL yuboring (yoki o'tkazib yuboring):", reply_markup=skip_kb)
+
+
+@admin_router.message(AddAdState.waiting_url)
+async def ad_url_handler(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    if msg.text == "🚫 Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor.", reply_markup=admin_main_kb)
+    data = await state.get_data()
+    await state.clear()
+    from database.queries import add_ad as db_add_ad
+
+    async with AsyncSessionLocal() as session:
+        ad = await db_add_ad(session, data["ad_text"], msg.text)
+    from utils.ad_helpers import invalidate_ad_cache
+
+    invalidate_ad_cache()
+    await msg.answer(
+        f"✅ Reklama #{ad.id} qo'shildi!\nMatn: {ad.text[:60]}\nURL: {msg.text}",
+        reply_markup=admin_main_kb,
+    )
+
+
+@admin_router.callback_query(F.data == "ad_skip_url")
+async def ad_skip_url(call: types.CallbackQuery, state: FSMContext):
+    current = await state.get_state()
+    if current != AddAdState.waiting_url.state:
+        return await call.answer()
+    if not await is_admin(call.from_user.id):
+        return
+    data = await state.get_data()
+    await state.clear()
+    from database.queries import add_ad as db_add_ad
+
+    async with AsyncSessionLocal() as session:
+        ad = await db_add_ad(session, data["ad_text"])
+    from utils.ad_helpers import invalidate_ad_cache
+
+    invalidate_ad_cache()
+    await call.message.answer(
+        f"✅ Reklama #{ad.id} qo'shildi!\nMatn: {ad.text[:60]}",
+        reply_markup=admin_main_kb,
+    )
+    await call.answer()
+
+
+@admin_router.callback_query(F.data.startswith("toggle_ad_"))
+async def toggle_ad_cb(call: types.CallbackQuery):
+    if not await is_admin(call.from_user.id):
+        return
+    ad_id = int(call.data.replace("toggle_ad_", ""))
+    from database.queries import toggle_ad as db_toggle_ad
+
+    async with AsyncSessionLocal() as session:
+        result = await db_toggle_ad(session, ad_id)
+    from utils.ad_helpers import invalidate_ad_cache
+
+    invalidate_ad_cache()
+    if result is None:
+        return await call.answer("❌ Reklama topilmadi!", show_alert=True)
+    st = "yoqildi ✅" if result else "o'chirildi ⛔"
+    await call.answer(f"Reklama #{ad_id} {st}", show_alert=True)
+
+
+@admin_router.callback_query(F.data.startswith("del_ad_"))
+async def del_ad_cb(call: types.CallbackQuery):
+    if not await is_admin(call.from_user.id):
+        return
+    ad_id = int(call.data.replace("del_ad_", ""))
+    from database.queries import remove_ad as db_remove_ad
+
+    async with AsyncSessionLocal() as session:
+        ok = await db_remove_ad(session, ad_id)
+    from utils.ad_helpers import invalidate_ad_cache
+
+    invalidate_ad_cache()
+    if ok:
+        await call.answer(f"🗑 Reklama #{ad_id} o'chirildi!", show_alert=True)
+    else:
+        await call.answer("❌ Topilmadi!", show_alert=True)
+
+
+# ═══════════════════════════════════════════════════════════
+#  REGION STATISTIKASI
+# ═══════════════════════════════════════════════════════════
+
+
+@admin_router.message(F.text == "🌍 Regionlar")
+async def region_stats(msg: Message):
+    if not await is_admin(msg.from_user.id):
+        return
+    from database.queries import get_user_count_by_region
+
+    async with AsyncSessionLocal() as session:
+        stats = await get_user_count_by_region(session)
+
+    text = "🌍 <b>Viloyatlar bo'yicha foydalanuvchilar</b>\n\n"
+    total = 0
+    for region_code, count in stats:
+        label = region_label(region_code)
+        text += f"📍 {label}: <b>{count}</b>\n"
+        total += count
+    text += f"\n👥 Jami: <b>{total}</b>"
+    await msg.answer(text, parse_mode="HTML", reply_markup=admin_main_kb)
 
 
 @admin_router.message(F.text == "🔙 Chiqish")

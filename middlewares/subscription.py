@@ -76,6 +76,15 @@ def get_sub_keyboard(channels: list):
             InlineKeyboardButton(text="❌ Chiqish", callback_data="cancel_sub_check"),
         ]
     )
+    buttons.append(
+        [
+            InlineKeyboardButton(
+                text="⚡ Pro olish — kanalsiz kirish",
+                callback_data="kawaii_pass",
+                style="success",
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
@@ -167,7 +176,11 @@ def _build_sub_payload(required_not_subbed: list, optional_channels: list) -> tu
     Majburiylar alohida, ixtiyoriylar pastda ko'rsatiladi (lekin
     tekshirilmaydi).
     """
-    lines: list[str] = ["⚠️ <b>Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:</b>", ""]
+    lines: list[str] = [
+        "⚠️ <b>Botdan foydalanish uchun quyidagi kanallarga obuna bo'ling:</b>",
+        "<i>💡 Yoki ⚡ Kaworai Pro sotib olib, kanalsiz kiring!</i>",
+        "",
+    ]
     lines.extend(f"• {ch.channel_name}" for ch in required_not_subbed)
     if optional_channels:
         lines.append("")

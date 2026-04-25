@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import Admin, Anime, AnimeRating, AnimeSubscription, Series, SubscriptionChannel, User
+from database.models import AdBanner, Admin, Anime, AnimeRating, AnimeSubscription, Series, SubscriptionChannel, User
 
 _SEASON_SUFFIX_RE = re.compile(r"\s+\d+\s*-?\s*fasl\s*$", re.IGNORECASE)
 
@@ -607,3 +607,83 @@ async def get_anime_full_info(session: AsyncSession, anime_id: int) -> dict | No
         "added_at": getattr(anime, "added_at", None),
         "description": anime.description,
     }
+
+
+# ═══════════════════════════════════════════════════════════
+#  AD BANNERS — oddiy userlar uchun video ostida reklama
+# ═══════════════════════════════════════════════════════════
+
+
+async def get_random_active_ad(session: AsyncSession) -> AdBanner | None:
+    """Faol reklamalardan tasodifiy bittasini qaytaradi."""
+    result = await session.execute(select(AdBanner).where(AdBanner.is_active == True).order_by(func.random()).limit(1))
+    return result.scalar_one_or_none()
+
+
+async def get_all_ads(session: AsyncSession) -> list[AdBanner]:
+    result = await session.execute(select(AdBanner).order_by(AdBanner.id.desc()))
+    return list(result.scalars().all())
+
+
+async def add_ad(session: AsyncSession, text: str, url: str | None = None) -> AdBanner:
+    ad = AdBanner(text=text, url=url)
+    session.add(ad)
+    await session.commit()
+    await session.refresh(ad)
+    return ad
+
+
+async def remove_ad(session: AsyncSession, ad_id: int) -> bool:
+    result = await session.execute(delete(AdBanner).where(AdBanner.id == ad_id))
+    await session.commit()
+    return result.rowcount > 0
+
+
+async def toggle_ad(session: AsyncSession, ad_id: int) -> bool | None:
+    ad = await session.get(AdBanner, ad_id)
+    if not ad:
+        return None
+    ad.is_active = not ad.is_active
+    await session.commit()
+    return ad.is_active
+
+
+# ═══════════════════════════════════════════════════════════
+#  REGION STATISTIKASI
+# ═══════════════════════════════════════════════════════════
+
+
+async def get_user_count_by_region(session: AsyncSession) -> list[tuple[str | None, int]]:
+    """Har bir viloyatdagi foydalanuvchilar sonini qaytaradi."""
+    result = await session.execute(
+        select(User.region, func.count(User.telegram_id))
+        .group_by(User.region)
+        .order_by(func.count(User.telegram_id).desc())
+    )
+    return list(result.all())
+
+
+async def get_pro_user_count(session: AsyncSession) -> int:
+    result = await session.execute(select(func.count(User.telegram_id)).where(User.is_pro == True))
+    return result.scalar() or 0
+
+
+async def get_today_active_users(session: AsyncSession) -> int:
+    """Bugun faol bo'lgan foydalanuvchilar soni."""
+
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    result = await session.execute(select(func.count(User.telegram_id)).where(User.last_active >= today_start))
+    return result.scalar() or 0
+
+
+async def search_users_by_id_or_name(
+    session: AsyncSession,
+    query: str,
+    limit: int = 10,
+) -> list[User]:
+    """Telegram ID yoki ism bo'yicha qidirish."""
+    if query.isdigit():
+        result = await session.execute(select(User).where(User.telegram_id == int(query)).limit(limit))
+    else:
+        result = await session.execute(select(User).where(User.full_name.ilike(f"%{query}%")).limit(limit))
+    return list(result.scalars().all())

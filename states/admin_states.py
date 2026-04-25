@@ -110,3 +110,9 @@ class AddEpisodeState(StatesGroup):
     waiting_bulk_videos = State()  # bulk: videolarni yig'ish
     waiting_bulk_manual_ep = State()  # caption'dan qism raqami topilmasa qo'lda so'rash
     waiting_bulk_confirm = State()  # tasdiqlash ekrani
+
+
+# 🔹 Reklama boshqaruv
+class AddAdState(StatesGroup):
+    waiting_text = State()
+    waiting_url = State()
