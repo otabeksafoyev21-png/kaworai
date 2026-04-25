@@ -218,6 +218,16 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_vr_anime ON view_records(anime_id)",
+    # ad_banners jadvali — oddiy userlar uchun video ostida reklama
+    """
+    CREATE TABLE IF NOT EXISTS ad_banners (
+        id         SERIAL PRIMARY KEY,
+        text       TEXT NOT NULL,
+        url        VARCHAR(500),
+        is_active  BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW()
+    )
+    """,
     # user_taste_profiles jadvali
     """
     CREATE TABLE IF NOT EXISTS user_taste_profiles (

@@ -304,7 +304,14 @@ async def _send_or_edit_video(
                  Agar xabar video bo'lsa edit ishlaydi, bo'lmasa yangi yuboradi.
 
     MUHIM: Oddiy user uchun protect_content=True (yuklab olish, forward blok).
+    Oddiy userlar uchun video ostida reklama ko'rsatiladi.
     """
+    if not is_pro:
+        from utils.ad_helpers import get_ad_text
+
+        ad = await get_ad_text()
+        if ad:
+            caption += ad
     if is_pro:
         # Pro: edit_media — xabar saqlanib qoladi
         try:
@@ -469,6 +476,15 @@ async def show_episode(call: CallbackQuery):
 
     await _send_or_edit_video(call, ep.file_id, caption, kb, is_pro)
     await call.answer()
+
+    from utils.sleep_reminder import record_episode_view
+
+    alert = record_episode_view(user_id)
+    if alert:
+        try:
+            await call.message.answer(alert, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════

@@ -213,3 +213,14 @@ class ViewRecord(Base):
     viewed_at = Column(DateTime, default=func.now())
 
     anime = relationship("Anime", back_populates="view_records")
+
+
+class AdBanner(Base):
+    """Oddiy (non-Pro) foydalanuvchilarga video ostida ko'rsatiladigan reklama bannerlari."""
+
+    __tablename__ = "ad_banners"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    text = Column(Text, nullable=False)
+    url = Column(String(500), nullable=True)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, server_default=func.now())

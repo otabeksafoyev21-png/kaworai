@@ -205,7 +205,14 @@ async def _deliver_episode_video(
       almashtiriladi (silliq UX). Agar edit xato bo'lsa — send fallback.
 
     `protect_content=not is_pro` — oddiy userlar yuklab/ulashib olmaydi.
+    Oddiy userlar uchun video ostida reklama ko'rsatiladi.
     """
+    if not is_pro:
+        from utils.ad_helpers import get_ad_text
+
+        ad = await get_ad_text()
+        if ad:
+            caption += ad
     media = InputMediaVideo(media=file_id, caption=caption, parse_mode="HTML")
     if ux_mode == "send":
         # Eski xabarning tugmalarini olib tashlaymiz (video o'zi qoladi).
@@ -554,6 +561,9 @@ def get_main_menu_keyboard(pro_extras: list[str] | None = None) -> InlineKeyboar
             [
                 InlineKeyboardButton(text="⚡ Kaworai Pro", callback_data="kawaii_pass", style="primary"),
             ],
+            [
+                InlineKeyboardButton(text="📍 Viloyatni o'zgartirish", callback_data="change_region", style="primary"),
+            ],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -724,6 +734,29 @@ async def user_region_pick(call: types.CallbackQuery):
     await _continue_after_start(call.message, user_id=user_id, anime_id=None)
 
 
+@user_router.callback_query(F.data == "change_region")
+async def change_region(call: types.CallbackQuery):
+    """Foydalanuvchi viloyatini o'zgartirish uchun picker ko'rsatadi."""
+    user_id = call.from_user.id
+    async with AsyncSessionLocal() as session:
+        user = await session.get(User, user_id)
+    current_region = region_label(user.region if user else None)
+    kb = region_picker_kb(callback_prefix="userregion_", with_cancel=True, cancel_cb="region_back_menu")
+    await call.message.edit_text(
+        f"📍 Hozirgi viloyatingiz: <b>{current_region}</b>\n\nYangi viloyatni tanlang:",
+        reply_markup=kb,
+        parse_mode="HTML",
+    )
+    await call.answer()
+
+
+@user_router.callback_query(F.data == "region_back_menu")
+async def region_back_menu(call: types.CallbackQuery):
+    """Region tanlashni bekor qilib, bosh menyuga qaytadi."""
+    await call.answer()
+    await send_main_menu(call, delete_prev=True)
+
+
 # ═══════════════════════════════════════════════════════════
 #  1-QISMDAN BOSHLA
 # ═══════════════════════════════════════════════════════════
@@ -774,6 +807,15 @@ async def watch_start(call: types.CallbackQuery):
             await record_view(session, anime_id, user_id)
     except Exception as e:
         logger.error(f"watch_start history error: {e}")
+
+    from utils.sleep_reminder import record_episode_view
+
+    alert = record_episode_view(user_id)
+    if alert:
+        try:
+            await call.message.answer(alert, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════
@@ -838,6 +880,15 @@ async def episode_select(call: types.CallbackQuery):
             await record_view(session, anime_id, user_id)
     except Exception as e:
         logger.error(f"episode_select history: {e}")
+
+    from utils.sleep_reminder import record_episode_view
+
+    alert = record_episode_view(user_id)
+    if alert:
+        try:
+            await call.message.answer(alert, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1007,6 +1058,15 @@ async def episode_navigate(call: types.CallbackQuery):
                 await record_view(session, anime_id, user_id)
     except Exception as e:
         logger.error(f"epnav history: {e}")
+
+    from utils.sleep_reminder import record_episode_view
+
+    alert = record_episode_view(user_id)
+    if alert:
+        try:
+            await call.message.answer(alert, parse_mode="HTML")
+        except Exception:
+            pass
 
 
 # ═══════════════════════════════════════════════════════════
