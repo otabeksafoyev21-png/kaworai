@@ -771,11 +771,14 @@ async def change_region(call: types.CallbackQuery):
         user = await session.get(User, user_id)
     current_region = region_label(user.region if user else None)
     kb = region_picker_kb(callback_prefix="userregion_", with_cancel=True, cancel_cb="region_back_menu")
-    await call.message.edit_text(
-        f"📍 Hozirgi viloyatingiz: <b>{current_region}</b>\n\nYangi viloyatni tanlang:",
-        reply_markup=kb,
-        parse_mode="HTML",
-    )
+    text = f"📍 Hozirgi viloyatingiz: <b>{current_region}</b>\n\nYangi viloyatni tanlang:"
+    try:
+        if call.message.caption is not None:
+            await call.message.edit_caption(caption=text, reply_markup=kb, parse_mode="HTML")
+        else:
+            await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
+    except Exception:
+        await call.message.answer(text, reply_markup=kb, parse_mode="HTML")
     await call.answer()
 
 
