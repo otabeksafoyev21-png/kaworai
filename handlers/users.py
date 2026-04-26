@@ -30,7 +30,7 @@ from database.queries import (
     is_subscribed_anime,
 )
 from middlewares.subscription import check_subscription, get_sub_keyboard
-from utils.regions import is_valid_region, region_label, region_picker_kb
+from utils.regions import is_valid_region, region_label
 from utils.security import parse_admin_ids
 
 logger = logging.getLogger(__name__)
@@ -590,9 +590,6 @@ def get_main_menu_keyboard(pro_extras: list[str] | None = None) -> InlineKeyboar
             [
                 InlineKeyboardButton(text="⚡ Kaworai Pro", callback_data="kawaii_pass", style="primary"),
             ],
-            [
-                InlineKeyboardButton(text="📍 Viloyatni o'zgartirish", callback_data="change_region", style="primary"),
-            ],
         ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -662,15 +659,6 @@ def _parse_start_anime_id(args: str) -> int | None:
     return None
 
 
-async def _prompt_region(message: types.Message) -> None:
-    """Foydalanuvchiga viloyatni tanlatish uchun 14 viloyatli picker."""
-    await message.answer(
-        "👋 <b>Salom!</b>\n\nBotdan foydalanish uchun avval viloyatingizni tanlang:",
-        reply_markup=region_picker_kb(callback_prefix="userregion_"),
-        parse_mode="HTML",
-    )
-
-
 async def _continue_after_start(
     message: types.Message,
     *,
@@ -710,7 +698,7 @@ async def cmd_start(message: types.Message, command: CommandObject):
     user_id = message.from_user.id
 
     async with AsyncSessionLocal() as session:
-        user, _ = await get_or_create_user(
+        _, _ = await get_or_create_user(
             session=session,
             telegram_id=user_id,
             full_name=message.from_user.full_name,
@@ -718,18 +706,6 @@ async def cmd_start(message: types.Message, command: CommandObject):
         )
 
     anime_id = _parse_start_anime_id(command.args or "")
-
-    # Agar region hali tanlanmagan bo'lsa — avval uni so'raymiz.
-    # Anime deep-link'ni `pending_anime_id` orqali region tanlangach ochamiz.
-    if not user or not is_valid_region(getattr(user, "region", None)):
-        if anime_id:
-            # Deep-link animeni vaqtincha user'ning o'ziga xabar sifatida eslatib
-            # qo'yamiz — region tanlanganda ochiladi. Saqlash uchun oddiy
-            # in-memory cache yo'q (restartga bardoshsiz), shuning uchun
-            # callback_data ichida emas, lekin keyin foydalanuvchi `/start
-            # anime_ID` ni qayta bossa ham ishlaydi.
-            pass
-        return await _prompt_region(message)
 
     await _continue_after_start(message, user_id=user_id, anime_id=anime_id)
 
@@ -761,29 +737,6 @@ async def user_region_pick(call: types.CallbackQuery):
         pass
     await call.answer("✅ Saqlandi", show_alert=False)
     await _continue_after_start(call.message, user_id=user_id, anime_id=None)
-
-
-@user_router.callback_query(F.data == "change_region")
-async def change_region(call: types.CallbackQuery):
-    """Foydalanuvchi viloyatini o'zgartirish uchun picker ko'rsatadi."""
-    user_id = call.from_user.id
-    async with AsyncSessionLocal() as session:
-        user = await session.get(User, user_id)
-    current_region = region_label(user.region if user else None)
-    kb = region_picker_kb(callback_prefix="userregion_", with_cancel=True, cancel_cb="region_back_menu")
-    await call.message.edit_text(
-        f"📍 Hozirgi viloyatingiz: <b>{current_region}</b>\n\nYangi viloyatni tanlang:",
-        reply_markup=kb,
-        parse_mode="HTML",
-    )
-    await call.answer()
-
-
-@user_router.callback_query(F.data == "region_back_menu")
-async def region_back_menu(call: types.CallbackQuery):
-    """Region tanlashni bekor qilib, bosh menyuga qaytadi."""
-    await call.answer()
-    await send_main_menu(call, delete_prev=True)
 
 
 # ═══════════════════════════════════════════════════════════
