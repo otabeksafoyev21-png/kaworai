@@ -184,7 +184,11 @@ def _build_episode_keyboard(
 def _build_episode_caption(anime: Anime, episode: int, total_eps: int) -> str:
     type_emoji = {"anime": "🎌", "movie": "🎥", "serial": "📺", "dorama": "🌸"}
     emoji = type_emoji.get(anime.content_type or "anime", "🎬")
-    return f"{emoji} <b>{anime.title}</b>\n▶ {episode}-qism  |  🎞 Jami: {total_eps} qism"
+    caption = f"{emoji} <b>{anime.title}</b>\n▶ {episode}-qism  |  🎞 Jami: {total_eps} qism"
+    filter_url = getattr(anime, "filter_url", None)
+    if filter_url:
+        caption += f'\n\n🎨 <a href="{filter_url}">Filter</a>'
+    return caption
 
 
 async def _deliver_episode_video(
@@ -208,11 +212,14 @@ async def _deliver_episode_video(
     Oddiy userlar uchun video ostida reklama ko'rsatiladi.
     """
     if not is_pro:
-        from utils.ad_helpers import get_ad_text
+        from utils.ad_helpers import get_ad_text, get_pro_ad_text
 
         ad = await get_ad_text()
         if ad:
             caption += ad
+        pro_txt = await get_pro_ad_text()
+        if pro_txt:
+            caption += f"\n\n💎 {pro_txt}"
     media = InputMediaVideo(media=file_id, caption=caption, parse_mode="HTML")
     if ux_mode == "send":
         # Eski xabarning tugmalarini olib tashlaymiz (video o'zi qoladi).
@@ -253,6 +260,28 @@ async def _deliver_episode_video(
     except Exception as e:
         logger.error(f"episode fallback send: {e}")
         await call.message.answer(caption, reply_markup=kb, parse_mode="HTML")
+
+
+async def _send_filter_media(call: types.CallbackQuery, anime: Anime) -> None:
+    """Anime uchun saqlangan filter mediani yuborish (agar mavjud bo'lsa)."""
+    f_type = getattr(anime, "filter_type", None)
+    if not f_type:
+        return
+    f_file = getattr(anime, "filter_file_id", None)
+    f_url = getattr(anime, "filter_url", None)
+    try:
+        if f_type == "photo" and f_file:
+            await call.message.answer_photo(photo=f_file)
+        elif f_type == "video" and f_file:
+            await call.message.answer_video(video=f_file)
+        elif f_type == "link" and f_url:
+            await call.message.answer(
+                f'🎨 <a href="{f_url}">Filter</a>',
+                parse_mode="HTML",
+                disable_web_page_preview=False,
+            )
+    except Exception:
+        logger.debug("filter media yuborib bo'lmadi", exc_info=True)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -798,6 +827,7 @@ async def watch_start(call: types.CallbackQuery):
     kb = _build_episode_keyboard(anime_id, ep_numbers, first_ep.episode, subscribed, is_pro, page=0)
 
     await _deliver_episode_video(call, file_id=first_ep.file_id, caption=caption, kb=kb, is_pro=is_pro, ux_mode=ux_mode)
+    await _send_filter_media(call, anime)
 
     try:
         from database.queries import add_to_watch_history, record_view

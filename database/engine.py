@@ -218,6 +218,17 @@ MIGRATIONS = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS ix_vr_anime ON view_records(anime_id)",
+    # bot_settings jadvali — admin tomonidan boshqariladigan sozlamalar
+    """
+    CREATE TABLE IF NOT EXISTS bot_settings (
+        key   VARCHAR(100) PRIMARY KEY,
+        value TEXT NOT NULL
+    )
+    """,
+    # animes jadvaliga filter ustunlari
+    "ALTER TABLE animes ADD COLUMN IF NOT EXISTS filter_file_id VARCHAR(300)",
+    "ALTER TABLE animes ADD COLUMN IF NOT EXISTS filter_type VARCHAR(20)",
+    "ALTER TABLE animes ADD COLUMN IF NOT EXISTS filter_url VARCHAR(500)",
     # ad_banners jadvali — oddiy userlar uchun video ostida reklama
     """
     CREATE TABLE IF NOT EXISTS ad_banners (

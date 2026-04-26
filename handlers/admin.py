@@ -44,6 +44,7 @@ from states.admin_states import (
     BackupState,
     BroadcastState,
     EditAnime,
+    EditProTextState,
 )
 from utils.broadcast import send_with_retry
 from utils.genre_picker import genre_picker_kb, genre_picker_text
@@ -125,6 +126,7 @@ ADMIN_REPLY_BUTTONS: set[str] = {
     "🗄 Baza zaxira",
     "📣 Reklamalar",
     "🌍 Regionlar",
+    "📝 Pro yozuvi",
     "🔙 Chiqish",
     "🚫 Bekor qilish",
 }
@@ -574,7 +576,8 @@ admin_main_kb = ReplyKeyboardMarkup(
         [KeyboardButton(text="👑 Pro boshqaruv"), KeyboardButton(text="✉️ Xabar yuborish")],
         [KeyboardButton(text="🗄 Baza zaxira"), KeyboardButton(text="📊 Statistika")],
         [KeyboardButton(text="🏆 Top 18"), KeyboardButton(text="📣 Reklamalar")],
-        [KeyboardButton(text="🌍 Regionlar"), KeyboardButton(text="🔙 Chiqish")],
+        [KeyboardButton(text="🌍 Regionlar"), KeyboardButton(text="📝 Pro yozuvi")],
+        [KeyboardButton(text="🔙 Chiqish")],
     ],
     resize_keyboard=True,
 )
@@ -4645,6 +4648,33 @@ async def ep_got_to(msg: Message, state: FSMContext):
         )
 
 
+# ─── Bot orqali: filter (qismlardan keyin) ────────────────────────────────
+
+
+async def _ask_filter(msg_or_call, state: FSMContext, data: dict):
+    """Qismlar qo'shilgandan keyin admin'dan filter so'rash."""
+    anime_id = int(data["ep_anime_id"])
+    title = data.get("ep_anime_title") or ""
+    from_ep = data.get("ep_from", "?")
+    to_ep = data.get("ep_to", "?")
+    await state.update_data(ep_anime_id=anime_id, ep_anime_title=title)
+    await state.set_state(AddEpisodeState.waiting_filter)
+    skip_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏭ Filtersiz davom etish", callback_data="ep_skip_filter", style="primary")]
+        ]
+    )
+    target = msg_or_call if isinstance(msg_or_call, Message) else msg_or_call.message
+    await target.answer(
+        f"🏁 <b>{esc(title)}</b> — {from_ep}–{to_ep} qismlar qo'shildi!\n\n"
+        "🎨 <b>Filter qo'shish</b> — bu anime uchun rasm, video yoki link yuboring.\n"
+        "Filter video qismlar bilan birga ko'rsatiladi.\n\n"
+        "📸 Rasm | 🎬 Video | 🔗 Link yuboring yoki o'tkazib yuboring:",
+        parse_mode="HTML",
+        reply_markup=skip_kb,
+    )
+
+
 # ─── Bot orqali: birma-bir video qabul ────────────────────────────────────
 
 
@@ -4715,12 +4745,8 @@ async def ep_single_got_video(msg: Message, state: FSMContext):
     await msg.answer(f"✅ {saved_ep}-qism qo'shildi!")
     next_ep = current + 1
     if next_ep > to_ep:
-        await state.clear()
-        return await msg.answer(
-            f"🏁 <b>Tayyor!</b> {data.get('ep_from')}—{to_ep} qismlar qo'shildi.",
-            parse_mode="HTML",
-            reply_markup=admin_main_kb,
-        )
+        await _ask_filter(msg, state, data)
+        return
     await state.update_data(ep_current=next_ep)
     await msg.answer(f"🎬 Endi <b>{next_ep}-qism</b> videosini yuboring:", parse_mode="HTML")
 
@@ -4965,16 +4991,16 @@ async def ep_bulk_commit(call: types.CallbackQuery, state: FSMContext):
         except Exception:
             logger.exception("ep_bulk_commit: secret kanalga yuborib bo'lmadi (baza yozildi)")
         ok += 1
-    await state.clear()
-    txt = [
-        "🏁 <b>Bulk tayyor</b>",
-        f"✅ Bazaga qo'shildi: {ok}",
-    ]
     if failed:
-        txt.append(f"❌ Xato: {failed}")
+        txt = [
+            "🏁 <b>Bulk tayyor</b>",
+            f"✅ Bazaga qo'shildi: {ok}",
+            f"❌ Xato: {failed}",
+        ]
         for e in errs[:3]:
             txt.append(f"  • {esc(e)}")
-    await call.message.answer("\n".join(txt), parse_mode="HTML", reply_markup=admin_main_kb)
+        await call.message.answer("\n".join(txt), parse_mode="HTML")
+    await _ask_filter(call, state, data)
 
 
 @admin_router.channel_post(F.chat.id == SECRET_CHANNEL_ID)
@@ -5566,6 +5592,65 @@ async def ch_region_pick(call: types.CallbackQuery, state: FSMContext):
 
 
 # ═══════════════════════════════════════════════════════════
+#  FILTER QABUL QILISH (qismlardan keyin)
+# ═══════════════════════════════════════════════════════════
+
+
+@admin_router.message(AddEpisodeState.waiting_filter)
+async def ep_filter_received(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    if msg.text == "🚫 Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor.", reply_markup=admin_main_kb)
+    data = await state.get_data()
+    anime_id = int(data["ep_anime_id"])
+    title = data.get("ep_anime_title") or ""
+    from database.queries import set_anime_filter
+
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+        async with AsyncSessionLocal() as session:
+            await set_anime_filter(session, anime_id, "photo", filter_file_id=file_id)
+        await state.clear()
+        await msg.answer(
+            f"🎨 <b>{esc(title)}</b> uchun rasm filter saqlandi!",
+            parse_mode="HTML",
+            reply_markup=admin_main_kb,
+        )
+    elif msg.video:
+        file_id = msg.video.file_id
+        async with AsyncSessionLocal() as session:
+            await set_anime_filter(session, anime_id, "video", filter_file_id=file_id)
+        await state.clear()
+        await msg.answer(
+            f"🎨 <b>{esc(title)}</b> uchun video filter saqlandi!",
+            parse_mode="HTML",
+            reply_markup=admin_main_kb,
+        )
+    elif msg.text and msg.text.startswith("http"):
+        async with AsyncSessionLocal() as session:
+            await set_anime_filter(session, anime_id, "link", filter_url=msg.text.strip())
+        await state.clear()
+        await msg.answer(
+            f"🎨 <b>{esc(title)}</b> uchun link filter saqlandi!",
+            parse_mode="HTML",
+            reply_markup=admin_main_kb,
+        )
+    else:
+        await msg.answer("❌ Rasm, video yoki link (http bilan) yuboring.")
+
+
+@admin_router.callback_query(F.data == "ep_skip_filter")
+async def ep_skip_filter(call: types.CallbackQuery, state: FSMContext):
+    if not await is_admin(call.from_user.id):
+        return
+    await state.clear()
+    await call.message.answer("✅ Tayyor! Filter qo'shilmadi.", reply_markup=admin_main_kb)
+    await call.answer()
+
+
+# ═══════════════════════════════════════════════════════════
 #  REKLAMA BOSHQARUV
 # ═══════════════════════════════════════════════════════════
 
@@ -5729,6 +5814,83 @@ async def region_stats(msg: Message):
         total += count
     text += f"\n👥 Jami: <b>{total}</b>"
     await msg.answer(text, parse_mode="HTML", reply_markup=admin_main_kb)
+
+
+# ═══════════════════════════════════════════════════════════
+#  PRO YOZUVI (admin boshqaruvi)
+# ═══════════════════════════════════════════════════════════
+
+
+@admin_router.message(F.text == "📝 Pro yozuvi")
+async def pro_text_manager(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    from database.queries import get_bot_setting
+
+    async with AsyncSessionLocal() as session:
+        current = await get_bot_setting(session, "pro_ad_text")
+    display = current or "<i>Hali kiritilmagan</i>"
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ O'zgartirish", callback_data="pro_text_edit", style="success")],
+            [InlineKeyboardButton(text="🗑 O'chirish", callback_data="pro_text_delete", style="danger")],
+        ]
+    )
+    await msg.answer(
+        f"📝 <b>Pro yozuvi</b>\n\n"
+        f"Bu yozuv Pro olishi mumkin bo'lgan foydalanuvchilarga ko'rsatiladi.\n\n"
+        f"📌 Hozirgi matn:\n{display}",
+        parse_mode="HTML",
+        reply_markup=kb,
+    )
+
+
+@admin_router.callback_query(F.data == "pro_text_edit")
+async def pro_text_edit_start(call: types.CallbackQuery, state: FSMContext):
+    if not await is_admin(call.from_user.id):
+        return
+    await state.set_state(EditProTextState.waiting_text)
+    await call.message.answer(
+        "📝 Yangi Pro yozuvini kiriting (HTML format qo'llab-quvvatlanadi):",
+        parse_mode="HTML",
+        reply_markup=cancel_kb,
+    )
+    await call.answer()
+
+
+@admin_router.message(EditProTextState.waiting_text)
+async def pro_text_received(msg: Message, state: FSMContext):
+    if not await is_admin(msg.from_user.id):
+        return
+    if msg.text == "🚫 Bekor qilish":
+        await state.clear()
+        return await msg.answer("Bekor.", reply_markup=admin_main_kb)
+    if not msg.text:
+        return await msg.answer("❌ Matn kiriting!")
+    from database.queries import set_bot_setting
+
+    async with AsyncSessionLocal() as session:
+        await set_bot_setting(session, "pro_ad_text", msg.text)
+    from utils.ad_helpers import invalidate_pro_ad_cache
+
+    invalidate_pro_ad_cache()
+    await state.clear()
+    await msg.answer("✅ Pro yozuvi saqlandi!", reply_markup=admin_main_kb)
+
+
+@admin_router.callback_query(F.data == "pro_text_delete")
+async def pro_text_delete(call: types.CallbackQuery, state: FSMContext):
+    if not await is_admin(call.from_user.id):
+        return
+    from database.queries import set_bot_setting
+
+    async with AsyncSessionLocal() as session:
+        await set_bot_setting(session, "pro_ad_text", "")
+    from utils.ad_helpers import invalidate_pro_ad_cache
+
+    invalidate_pro_ad_cache()
+    await call.message.answer("🗑 Pro yozuvi o'chirildi!", reply_markup=admin_main_kb)
+    await call.answer()
 
 
 @admin_router.message(F.text == "🔙 Chiqish")
