@@ -54,3 +54,41 @@ def invalidate_ad_cache() -> None:
     global _ad_cached_text, _ad_cached_ts
     _ad_cached_text = None
     _ad_cached_ts = 0.0
+
+
+# Pro foydalanuvchilar uchun reklama yozuvi keshi
+_pro_ad_cached_text: str | None = None
+_pro_ad_cached_ts: float = 0.0
+_PRO_AD_TTL = 120.0
+
+
+async def get_pro_ad_text() -> str | None:
+    """Admin kiritgan Pro reklama yozuvini qaytaradi (keshli)."""
+    global _pro_ad_cached_text, _pro_ad_cached_ts
+    now = time.monotonic()
+    if _pro_ad_cached_text is not None and (now - _pro_ad_cached_ts) < _PRO_AD_TTL:
+        return _pro_ad_cached_text if _pro_ad_cached_text else None
+
+    try:
+        from database.engine import AsyncSessionLocal
+        from database.queries import get_bot_setting
+
+        async with AsyncSessionLocal() as session:
+            val = await get_bot_setting(session, "pro_ad_text")
+            if not val:
+                _pro_ad_cached_text = ""
+                _pro_ad_cached_ts = now
+                return None
+            _pro_ad_cached_text = val
+            _pro_ad_cached_ts = now
+            return val
+    except Exception:
+        logger.debug("get_pro_ad_text: failed", exc_info=True)
+        return None
+
+
+def invalidate_pro_ad_cache() -> None:
+    """Admin Pro yozuvini o'zgartirganda chaqiriladi."""
+    global _pro_ad_cached_text, _pro_ad_cached_ts
+    _pro_ad_cached_text = None
+    _pro_ad_cached_ts = 0.0

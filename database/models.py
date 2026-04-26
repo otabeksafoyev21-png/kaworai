@@ -88,6 +88,11 @@ class Anime(Base):
     # qayta qo'shishda admin 2,3,... fasl deb belgilaydi; shu raqam title'ga
     # avto-qo'shilib saqlanadi (masalan "Naruto 2-fasl").
     season = Column(Integer, default=1)
+    # Filter — qism qo'shishda admin qo'shadigan media (rasm/video/link).
+    # Video qism ko'rsatilganda filter ham birga chiqadi.
+    filter_file_id = Column(String(300), nullable=True)
+    filter_type = Column(String(20), nullable=True)  # "photo", "video", "link"
+    filter_url = Column(String(500), nullable=True)
     # Migration orqali qo'shiladi (migration_v2.py)
     # added_by_id, added_by_username, added_at
 
@@ -224,3 +229,11 @@ class AdBanner(Base):
     url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+class BotSetting(Base):
+    """Bot sozlamalari — kalit-qiymat jadvali (masalan Pro yozuvi)."""
+
+    __tablename__ = "bot_settings"
+    key = Column(String(100), primary_key=True)
+    value = Column(Text, nullable=False)

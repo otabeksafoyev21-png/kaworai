@@ -618,9 +618,16 @@ async def problem_speed(call: CallbackQuery):
         "✅ Bu 2 usul 90% holatlarda muammoni hal qiladi."
     )
     if not is_pro:
-        text += (
-            "\n\n━━━━━━━━━━━━━━━\n💎 <b>Kaworai Pro</b> obunasini sotib oling — sifatli va muammosiz tomosha qiling!"
-        )
+        from utils.ad_helpers import get_pro_ad_text
+
+        pro_txt = await get_pro_ad_text()
+        if pro_txt:
+            text += f"\n\n━━━━━━━━━━━━━━━\n💎 {pro_txt}"
+        else:
+            text += (
+                "\n\n━━━━━━━━━━━━━━━\n"
+                "💎 <b>Kaworai Pro</b> obunasini sotib oling — sifatli va muammosiz tomosha qiling!"
+            )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[

@@ -4,7 +4,17 @@ from datetime import datetime
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from database.models import AdBanner, Admin, Anime, AnimeRating, AnimeSubscription, Series, SubscriptionChannel, User
+from database.models import (
+    AdBanner,
+    Admin,
+    Anime,
+    AnimeRating,
+    AnimeSubscription,
+    BotSetting,
+    Series,
+    SubscriptionChannel,
+    User,
+)
 
 _SEASON_SUFFIX_RE = re.compile(r"\s+\d+\s*-?\s*fasl\s*$", re.IGNORECASE)
 
@@ -687,3 +697,49 @@ async def search_users_by_id_or_name(
     else:
         result = await session.execute(select(User).where(User.full_name.ilike(f"%{query}%")).limit(limit))
     return list(result.scalars().all())
+
+
+# ═══════════════════════════════════════════════════════════
+#  BOT SETTINGS
+# ═══════════════════════════════════════════════════════════
+
+
+async def get_bot_setting(session: AsyncSession, key: str) -> str | None:
+    """Bot sozlamasini olish."""
+    result = await session.execute(select(BotSetting).where(BotSetting.key == key))
+    setting = result.scalar_one_or_none()
+    return setting.value if setting else None
+
+
+async def set_bot_setting(session: AsyncSession, key: str, value: str) -> None:
+    """Bot sozlamasini saqlash (upsert)."""
+    result = await session.execute(select(BotSetting).where(BotSetting.key == key))
+    setting = result.scalar_one_or_none()
+    if setting:
+        setting.value = value
+    else:
+        session.add(BotSetting(key=key, value=value))
+    await session.commit()
+
+
+# ═══════════════════════════════════════════════════════════
+#  ANIME FILTER
+# ═══════════════════════════════════════════════════════════
+
+
+async def set_anime_filter(
+    session: AsyncSession,
+    anime_id: int,
+    filter_type: str,
+    filter_file_id: str | None = None,
+    filter_url: str | None = None,
+) -> bool:
+    """Anime uchun filter (rasm/video/link) saqlash."""
+    anime = await session.get(Anime, anime_id)
+    if not anime:
+        return False
+    anime.filter_type = filter_type
+    anime.filter_file_id = filter_file_id
+    anime.filter_url = filter_url
+    await session.commit()
+    return True
