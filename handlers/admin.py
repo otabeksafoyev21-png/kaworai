@@ -729,7 +729,18 @@ async def admin_entry(msg: Message, state: FSMContext):
 
     role_str = admin.role.upper() if admin else "OWNER"
 
-    await msg.answer(f"🛠 <b>Kaworai Admin Panel</b>\nRol: {role_str}", reply_markup=admin_main_kb, parse_mode="HTML")
+    await msg.answer(
+        f"🛠 <b>Kaworai Admin Panel</b>\nRol: {role_str}\n\n"
+        "📌 <b>Qo'llanma:</b>\n"
+        "• <b>➕ Kontent qo'shish</b> — yangi anime/kino/serial/dorama qo'shish "
+        "(ID → nom → tur → tavsif → rasm)\n"
+        "• <b>🎞 Qism qo'shish</b> — kontent uchun qismlar yuklash "
+        "(birma-bir yoki bulk usulda)\n"
+        "• <b>📢 Kanallar</b> — obuna kanallari qo'shish/o'chirish\n"
+        "• <b>🗂 Kontent boshqaruv</b> — mavjud kontentni tahrirlash/o'chirish",
+        reply_markup=admin_main_kb,
+        parse_mode="HTML",
+    )
 
     # 🔥 SHU YERGA QO‘SHASAN
     mark_admin_active(msg.from_user.id)
@@ -1777,7 +1788,13 @@ async def add_anime_start(msg: Message, state: FSMContext):
         return
     await state.set_state(AddAnime.waiting_id)
     await msg.answer(
-        "🆔 Yangi kontent <b>ID</b>si (faqat raqam):\n<i>Masalan: 4345</i>", parse_mode="HTML", reply_markup=cancel_kb
+        "➕ <b>Yangi kontent qo'shish</b>\n\n"
+        "Qadamlar: ID → Nom → Tur (anime/kino/serial/dorama) → "
+        "Tavsif → Rasm → Holat\n\n"
+        "🆔 <b>Kontent ID</b>sini kiriting (faqat raqam):\n"
+        "<i>Masalan: <code>4345</code></i>",
+        parse_mode="HTML",
+        reply_markup=cancel_kb,
     )
 
 
@@ -4546,7 +4563,12 @@ async def add_episode_start(msg: Message, state: FSMContext):
         ]
     )
     await msg.answer(
-        "🎞 <b>Qism qo'shish</b>\n\nQaysi usulda qo'shmoqchisiz?",
+        "🎞 <b>Qism qo'shish</b>\n\n"
+        "📡 <b>Maxfiy kanal</b> — kanalga video + caption yuborasiz\n"
+        "🤖 <b>Birma-bir</b> — har bir qism uchun alohida video yuborasiz\n"
+        "📦 <b>Bulk</b> — barcha videolarni ketma-ket yuboring, "
+        "bot avtomatik raqamlaydi\n\n"
+        "Usulni tanlang:",
         reply_markup=kb,
         parse_mode="HTML",
     )
@@ -4582,7 +4604,7 @@ async def ep_via_channel(call: types.CallbackQuery, state: FSMContext):
 async def _ep_ask_anime_id(msg_or_call, state: FSMContext, *, is_call: bool = False):
     """Bot orqali qism qo'shishning birinchi qadami — anime ID so'rash."""
     await state.set_state(AddEpisodeState.waiting_anime_id)
-    text = "🎬 <b>Anime ID ni kiriting:</b>\n\n<i>Masalan: <code>388</code></i>"
+    text = "🎬 <b>Kontent ID</b>sini kiriting:\n\n<i>Masalan: <code>388</code></i>\n(🗂 Kontent boshqaruvdan ID ni ko'rishingiz mumkin)"
     if is_call:
         await msg_or_call.message.answer(text, parse_mode="HTML", reply_markup=cancel_kb)
         await msg_or_call.answer()
@@ -4625,11 +4647,10 @@ async def ep_got_anime_id(msg: Message, state: FSMContext):
     data = await state.get_data()
     mode = data.get("ep_mode", "single")
     if mode == "bulk":
-        # Bulk rejimda boshlang'ich qism ixtiyoriy — caption'dan olinadi. Shu
-        # bois shunchaki kutiladigan oraliqni aytamiz.
         await msg.answer(
             f"✅ <b>{esc(anime.title)}</b> (ID {anime_id})\n\n"
-            "Endi <b>qaysi qismdan boshlab</b> qo'shmoqchisiz? Raqam kiriting:",
+            "Nechanchi qismdan boshlaysiz? Raqam kiriting:\n"
+            "<i>Masalan: <code>1</code></i>",
             parse_mode="HTML",
             reply_markup=cancel_kb,
         )
@@ -4700,10 +4721,11 @@ async def ep_got_to(msg: Message, state: FSMContext):
         await msg.answer(
             f"📦 <b>Bulk rejim</b> — {esc(data.get('ep_anime_title') or '')} "
             f"({from_ep}—{to_ep})\n\n"
-            "Endi kerakli videolarni <b>caption bilan</b> bu chatga yuboring "
-            "(forward qilsangiz ham bo'ladi).\n"
-            "Bot caption'dan qism raqamini avtomatik topishga urinadi "
-            "(masalan <code>1-qism</code>, <code>Qism: 3</code>, <code>Episode 5</code>).\n\n"
+            "Videolarni ketma-ket yuboring — bot avtomatik raqamlaydi:\n"
+            f"  1-video → <b>{from_ep}-qism</b>\n"
+            f"  2-video → <b>{from_ep + 1}-qism</b>\n"
+            "  ...\n\n"
+            "Forward qilsangiz ham bo'ladi.\n"
             "Hammasini yuborib bo'lgach «✅ Tayyor» tugmasini bosing.",
             parse_mode="HTML",
             reply_markup=kb,
@@ -4752,57 +4774,16 @@ async def _post_episode_to_secret(
     content_type: str | None = None,
 ):
     """
-    Videoni maxfiy kanalga to'liq caption bilan yuboradi — fayl jurnali sifatida.
+    Videoni maxfiy kanalga qisqa caption bilan yuboradi.
 
-    `content_type` — anime/dorama/serial/movie. Mos kanal `_resolve_secret_channel`
-    orqali aniqlanadi (env'da ALOHIDA `SECRET_*_CHANNEL_ID` sozlangan bo'lsa
-    o'sha kanalga, aks holda `SECRET_CHANNEL_ID` fallback'ga). Agar hech qanday
-    maxfiy kanal sozlanmagan bo'lsa — `RuntimeError` ko'tariladi.
-
-    Caption tarkibi:
-      ID: <anime_id>
-      Qism: <episode>
-      [FILLER]              # filler bo'lsa
-      <bo'sh qator>
-      <admin yuborgan original caption (max 700 belgi)>
-
-    Telegram caption uzunligi 1024 belgi bilan cheklanganligi uchun original
-    caption 700 belgiga truncatsiya qilinadi (ID/Qism/[FILLER] uchun joy qoladi).
-
-    Flood-wait (Telegram 429) ushlanadi — `TelegramRetryAfter.retry_after`
-    soniya kutib bir marta qayta urinadi. Bu bulk auto-add'da ko'p video
-    yuborilganda ba'zilari "tushib qolish"ini oldini oladi.
-
-    Bazaga yozish bu yerda emas — `_save_episode_to_db` da bajariladi (bot
-    har doim ham o'z kanal postlarini qayta o'qib bo'lmaydi).
+    Caption: ``ID: <anime_id>\nQism: <episode>``  (+ ``[FILLER]`` agar kerak).
     """
     from aiogram.exceptions import TelegramRetryAfter
 
     parts = [f"ID: {anime_id}", f"Qism: {episode}"]
     if is_filler:
         parts.append("[FILLER]")
-    header = "\n".join(parts)
-    body = (original_caption or "").strip()
-    if body:
-        # Headerda paydo bo'lgan ID/Qism/[FILLER] qatorlarini qaytadan tushirib
-        # yubormaslik uchun shu prefiksli qatorlarni o'chirib tashlaymiz.
-        cleaned_lines: list[str] = []
-        for line in body.splitlines():
-            ll = line.strip().lower()
-            if ll.startswith(("id:", "qism:", "episode:", "part:")):
-                continue
-            if ll in ("[filler]", "(filler)", "filler"):
-                continue
-            cleaned_lines.append(line)
-        body_clean = "\n".join(cleaned_lines).strip()
-        if len(body_clean) > 700:
-            body_clean = body_clean[:697].rstrip() + "..."
-        if body_clean:
-            caption = f"{header}\n\n{body_clean}"
-        else:
-            caption = header
-    else:
-        caption = header
+    caption = "\n".join(parts)
 
     target_channel = _resolve_secret_channel(content_type)
     if not target_channel:
@@ -4993,37 +4974,39 @@ async def ep_bulk_collect(msg: Message, state: FSMContext):
         await state.clear()
         return await msg.answer("Bekor.", reply_markup=admin_main_kb)
     if not (msg.video or msg.document):
-        return  # faqat video/document qabul, qolganini e'tibor bermaslik
+        return
     file_id = msg.video.file_id if msg.video else msg.document.file_id
     is_doc = bool(msg.document and not msg.video)
     caption = msg.caption or msg.text or ""
-    detected = _detect_episode_from_caption(caption)
     is_filler = _detect_filler_from_caption(caption)
     data = await state.get_data()
     items: list[dict] = list(data.get("ep_bulk_items") or [])
+    from_ep = int(data.get("ep_from") or 1)
+    ep_num = from_ep + len(items)
+    to_ep = int(data.get("ep_to") or 10**6)
+    if ep_num > to_ep:
+        return await msg.answer(
+            f"⚠️ Oraliq tugadi! Siz {from_ep}—{to_ep} oraliq tanladingiz, "
+            f"lekin {len(items)} ta video allaqachon qabul qilindi.",
+            parse_mode="HTML",
+        )
     items.append(
         {
             "file_id": file_id,
             "is_doc": is_doc,
             "caption": caption,
-            "episode": detected,
+            "episode": ep_num,
             "is_filler": is_filler,
         }
     )
     await state.update_data(ep_bulk_items=items)
     total = len(items)
-    ok = sum(1 for it in items if it.get("episode") is not None)
-    fil = sum(1 for it in items if it.get("is_filler"))
-    parts_msg = [
-        f"➕ Qabul qilindi. Jami: <b>{total}</b> ta. Aniqlangan qismlar: <b>{ok}</b>.",
-    ]
-    if detected:
-        parts_msg.append(f"(bu video: <b>{detected}-qism</b>{' • 🎲 FILLER' if is_filler else ''})")
-    else:
-        parts_msg.append("⚠️ Bu videoda qism raqami topilmadi.")
-    if fil:
-        parts_msg.append(f"🎲 Filler qismlar: <b>{fil}</b> ta")
-    await msg.answer("\n".join(parts_msg), parse_mode="HTML")
+    await msg.answer(
+        f"➕ Qabul qilindi: <b>{ep_num}-qism</b>"
+        f"{' • 🎲 FILLER' if is_filler else ''}\n"
+        f"Jami: <b>{total}</b> ta ({from_ep}—{from_ep + total - 1})",
+        parse_mode="HTML",
+    )
 
 
 @admin_router.callback_query(F.data == "ep_bulk_cancel")
@@ -5138,20 +5121,6 @@ async def ep_bulk_done(call: types.CallbackQuery, state: FSMContext):
     items: list[dict] = list(data.get("ep_bulk_items") or [])
     if not items:
         return await call.answer("Videolar yuborilmagan!", show_alert=True)
-    # Noaniq (episode=None) bor-yo'qligini tekshiramiz
-    missing = [i for i, it in enumerate(items) if it.get("episode") is None]
-    if missing:
-        await state.update_data(ep_bulk_fix_queue=missing, ep_bulk_fix_idx=0)
-        await state.set_state(AddEpisodeState.waiting_bulk_manual_ep)
-        it = items[missing[0]]
-        preview = (it.get("caption") or "<i>caption yo'q</i>")[:300]
-        return await call.message.answer(
-            f"⚠️ <b>1/{len(missing)}</b> — bu videoda qism raqami topilmadi.\n\n"
-            f"<i>Caption:</i>\n<code>{esc(preview)}</code>\n\n"
-            "Iltimos, qism raqamini kiriting (masalan <code>3</code>):",
-            parse_mode="HTML",
-            reply_markup=cancel_kb,
-        )
     await _ep_bulk_show_preview(call.message, state)
     await call.answer()
 
@@ -5567,8 +5536,15 @@ async def channel_manager(msg: Message):
                 ]
             ]
         )
-        return await msg.answer("📢 Hozircha kanallar yo'q.", reply_markup=kb)
-    text = "📢 <b>Kanallar:</b>\n\n"
+        return await msg.answer(
+            "📢 <b>Kanallar boshqaruvi</b>\n\n"
+            "Hozircha kanallar yo'q.\n\n"
+            "• <b>Obuna kanali</b> — foydalanuvchi obuna bo'lishi shart bo'lgan kanal\n"
+            "• <b>News kanal</b> — yangiliklar kanali (ixtiyoriy)",
+            reply_markup=kb,
+            parse_mode="HTML",
+        )
+    text = "📢 <b>Kanallar boshqaruvi</b>\n\n"
     kb = InlineKeyboardBuilder()
     for ch in channels:
         st = "✅" if ch.is_active else "⛔"
