@@ -1,0 +1,93 @@
+[project]
+name = "kaworai-bot"
+version = "0.1.0"
+description = "Kaworai anime Telegram bot."
+requires-python = ">=3.10"
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["venv", "__pycache__", "migration.py"]
+
+[tool.ruff.lint]
+# Keep the initial ruleset narrow and high-signal. We can opt into more
+# aggressive checks (naming, simplification, complexity) in a follow-up
+# once the existing warnings here are resolved.
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes (unused imports, undefined names)
+    "W",    # pycodestyle warnings
+    "I",    # isort
+    "B",    # flake8-bugbear (real bugs: mutable defaults, unused loop vars, ...)
+    "UP",   # pyupgrade (obsolete syntax)
+    "PIE",  # flake8-pie (misc lints)
+    "PLE",  # pylint errors only (no style/refactor noise)
+    "RUF",  # ruff-specific
+]
+ignore = [
+    "E501",   # line-too-long — existing code has many wide aligned assignments
+    "E701",   # multiple statements on one line (legacy: `if cond: return`)
+    "E702",   # multiple statements on one line (semicolon)
+    "E741",   # ambiguous variable name (e.g. `l`, `I`) — out of scope for now
+    "B008",   # function call in default arg — aiogram filter patterns trip this
+    "B904",   # raise from — not idiomatic in handlers, out of scope
+    "UP007",  # use `X | Y` — conservative, keep `Optional[X]` for Python 3.10 compat
+    "UP035",  # Deprecated `typing.X` imports — needs full sweep
+    "UP045",  # use `X | None` — same reason as UP007
+    "RUF001", # ambiguous unicode characters — bot speaks Uzbek, Latin/Cyrillic mix
+    "RUF002",
+    "RUF003",
+    "RUF012", # mutable class attributes — aiogram filter classes pattern
+]
+
+[tool.ruff.lint.per-file-ignores]
+# `main.py` is an alternate entry point that shadows symbol names from bot.py
+"main.py" = ["F401"]
+# `loader.py` re-exports for backwards compat
+"loader.py" = ["F401"]
+# SQLAlchemy `Column == True` is an idiom that emits a SQL comparison.
+# Bare `Column` works too, but many callers prefer the explicit form for
+# readability. Silencing this check lets us avoid mechanical edits across
+# ~20 existing queries.
+"database/**/*.py" = ["E712", "E711"]
+"handlers/**/*.py" = ["E712", "E711"]
+"utils/recommendation.py" = ["E712", "E711"]
+# One-off migration script — imports appear after a top-of-file docstring
+# with inline commentary. Not worth rewriting.
+"database/subscription_migration.py" = ["E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["handlers", "middlewares", "database", "keyboards", "states", "utils", "data", "config"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.10"
+# Start loose. Existing code has ~2.5k lines in a single handler; turning on
+# strict mode immediately would drown any real bug signal. Tighten later.
+ignore_missing_imports = true
+check_untyped_defs = false
+disallow_untyped_defs = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+# `states/` paketida `__init__.py` yo'q — mypy faylni ikki xil modul
+# nomi bilan topadi (`admin_states` va `states.admin_states`).
+# `explicit_package_bases` buni to'g'rilaydi.
+explicit_package_bases = true
+# Exclude the throwaway migration script and any virtualenv copy.
+exclude = [
+    "^venv/",
+    "^migration\\.py$",
+]
+
+[[tool.mypy.overrides]]
+# Aiogram's handler signatures rely on dependency injection from Dispatcher
+# that static analysis can't see — silence untyped-call noise there.
+# `no-redef`, `union-attr`, `arg-type`, `misc` — mavjud koddagi xatolar
+# (FSMContext.get_data() Any qaytaradi, o'zgaruvchi qayta ishlatish va h.k.).
+module = ["handlers.*", "middlewares.*"]
+disable_error_code = ["attr-defined", "call-arg", "no-redef", "union-attr", "arg-type", "misc"]
