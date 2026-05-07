@@ -4999,7 +4999,7 @@ async def ep_bulk_collect(msg: Message, state: FSMContext):
     total = len(items)
     ok = sum(1 for it in items if it.get("episode") is not None)
     parts_msg = [f"➕ Qabul qilindi. Jami: <b>{total}</b> ta."]
-    if detected:
+    if detected is not None:
         parts_msg.append(f"📌 Aniqlandi: <b>{detected}-qism</b>{' • 🎲 FILLER' if is_filler else ''}")
     else:
         parts_msg.append("⚠️ Qism raqami topilmadi — keyinroq so'raladi.")
@@ -5124,10 +5124,11 @@ async def ep_bulk_done(call: types.CallbackQuery, state: FSMContext):
         await state.update_data(ep_bulk_fix_queue=missing, ep_bulk_fix_idx=0)
         await state.set_state(AddEpisodeState.waiting_bulk_manual_ep)
         it = items[missing[0]]
-        preview = (it.get("caption") or "<i>caption yo'q</i>")[:300]
+        raw_cap = (it.get("caption") or "").strip()
+        preview = esc(raw_cap[:300]) if raw_cap else "<i>caption yo'q</i>"
         await call.message.answer(
             f"⚠️ <b>1/{len(missing)}</b> — bu videoda qism raqami topilmadi.\n\n"
-            f"<i>Caption:</i>\n<code>{esc(preview)}</code>\n\n"
+            f"<i>Caption:</i>\n<code>{preview}</code>\n\n"
             "Qism raqamini kiriting (masalan <code>3</code>):",
             parse_mode="HTML",
             reply_markup=cancel_kb,
@@ -5161,10 +5162,11 @@ async def ep_bulk_manual_fix(msg: Message, state: FSMContext):
     if idx >= len(queue):
         return await _ep_bulk_show_preview(msg, state)
     nxt = items[queue[idx]]
-    preview = (nxt.get("caption") or "<i>caption yo'q</i>")[:300]
+    raw_cap = (nxt.get("caption") or "").strip()
+    preview = esc(raw_cap[:300]) if raw_cap else "<i>caption yo'q</i>"
     await msg.answer(
         f"⚠️ <b>{idx + 1}/{len(queue)}</b> — qism raqami topilmadi.\n\n"
-        f"<i>Caption:</i>\n<code>{esc(preview)}</code>\n\n"
+        f"<i>Caption:</i>\n<code>{preview}</code>\n\n"
         "Qism raqamini kiriting:",
         parse_mode="HTML",
         reply_markup=cancel_kb,
