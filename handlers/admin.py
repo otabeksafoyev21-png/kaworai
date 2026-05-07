@@ -4566,8 +4566,8 @@ async def add_episode_start(msg: Message, state: FSMContext):
         "🎞 <b>Qism qo'shish</b>\n\n"
         "📡 <b>Maxfiy kanal</b> — kanalga video + caption yuborasiz\n"
         "🤖 <b>Birma-bir</b> — har bir qism uchun alohida video yuborasiz\n"
-        "📦 <b>Bulk</b> — barcha videolarni ketma-ket yuboring, "
-        "bot avtomatik raqamlaydi\n\n"
+        "📦 <b>Bulk</b> — videolarni caption bilan yuboring, "
+        "bot captiondan qism raqamini aniqlaydi\n\n"
         "Usulni tanlang:",
         reply_markup=kb,
         parse_mode="HTML",
@@ -4721,11 +4721,11 @@ async def ep_got_to(msg: Message, state: FSMContext):
         await msg.answer(
             f"📦 <b>Bulk rejim</b> — {esc(data.get('ep_anime_title') or '')} "
             f"({from_ep}—{to_ep})\n\n"
-            "Videolarni ketma-ket yuboring — bot avtomatik raqamlaydi:\n"
-            f"  1-video → <b>{from_ep}-qism</b>\n"
-            f"  2-video → <b>{from_ep + 1}-qism</b>\n"
-            "  ...\n\n"
-            "Forward qilsangiz ham bo'ladi.\n"
+            "Videolarni <b>caption bilan</b> yuboring (forward ham bo'ladi).\n"
+            "Bot caption'dan qism raqamini avtomatik aniqlaydi:\n"
+            "  <code>1-qism</code>, <code>Qism: 3</code>, "
+            "<code>seriya 5</code>, <code>Episode 7</code>\n\n"
+            "Agar topilmasa — «✅ Tayyor» bosganda so'raladi.\n"
             "Hammasini yuborib bo'lgach «✅ Tayyor» tugmasini bosing.",
             parse_mode="HTML",
             reply_markup=kb,
@@ -4832,17 +4832,21 @@ async def _save_episode_to_db(
         anime = await session.get(Anime, anime_id)
         if not anime:
             return False, f"Anime ID {anime_id} topilmadi", 0, None
-        existing = (
-            await session.execute(select(Series).where(Series.anime_id == anime_id, Series.episode == ep))
-        ).scalar_one_or_none()
-        if existing is not None:
-            existing.file_id = file_id
-            # Filler bayrog'ini faqat "tepaga" siljitamiz: agar admin filler
-            # bo'lmagan video bilan upsert qilsa, eski filler statusi saqlanadi.
-            # Bu xato (yangi yuklash filler-emas, lekin eski yozuv filler ekan
-            # holatda) holatlarda admin alohida `unmark filler` qilishi kerak.
-            if is_filler:
-                existing.is_filler = True
+        rows = (
+            (
+                await session.execute(
+                    select(Series).where(Series.anime_id == anime_id, Series.episode == ep).order_by(Series.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if rows:
+            keep = rows[0]
+            keep.file_id = file_id
+            keep.is_filler = bool(is_filler)
+            for dup in rows[1:]:
+                await session.delete(dup)
         else:
             session.add(Series(anime_id=anime_id, episode=ep, file_id=file_id, is_filler=bool(is_filler)))
         await session.commit()
@@ -4978,35 +4982,29 @@ async def ep_bulk_collect(msg: Message, state: FSMContext):
     file_id = msg.video.file_id if msg.video else msg.document.file_id
     is_doc = bool(msg.document and not msg.video)
     caption = msg.caption or msg.text or ""
+    detected = _detect_episode_from_caption(caption)
     is_filler = _detect_filler_from_caption(caption)
     data = await state.get_data()
     items: list[dict] = list(data.get("ep_bulk_items") or [])
-    from_ep = int(data.get("ep_from") or 1)
-    ep_num = from_ep + len(items)
-    to_ep = int(data.get("ep_to") or 10**6)
-    if ep_num > to_ep:
-        return await msg.answer(
-            f"⚠️ Oraliq tugadi! Siz {from_ep}—{to_ep} oraliq tanladingiz, "
-            f"lekin {len(items)} ta video allaqachon qabul qilindi.",
-            parse_mode="HTML",
-        )
     items.append(
         {
             "file_id": file_id,
             "is_doc": is_doc,
             "caption": caption,
-            "episode": ep_num,
+            "episode": detected,
             "is_filler": is_filler,
         }
     )
     await state.update_data(ep_bulk_items=items)
     total = len(items)
-    await msg.answer(
-        f"➕ Qabul qilindi: <b>{ep_num}-qism</b>"
-        f"{' • 🎲 FILLER' if is_filler else ''}\n"
-        f"Jami: <b>{total}</b> ta ({from_ep}—{from_ep + total - 1})",
-        parse_mode="HTML",
-    )
+    ok = sum(1 for it in items if it.get("episode") is not None)
+    parts_msg = [f"➕ Qabul qilindi. Jami: <b>{total}</b> ta."]
+    if detected is not None:
+        parts_msg.append(f"📌 Aniqlandi: <b>{detected}-qism</b>{' • 🎲 FILLER' if is_filler else ''}")
+    else:
+        parts_msg.append("⚠️ Qism raqami topilmadi — keyinroq so'raladi.")
+    parts_msg.append(f"Aniqlangan: <b>{ok}</b> / {total}")
+    await msg.answer("\n".join(parts_msg), parse_mode="HTML")
 
 
 @admin_router.callback_query(F.data == "ep_bulk_cancel")
@@ -5121,6 +5119,22 @@ async def ep_bulk_done(call: types.CallbackQuery, state: FSMContext):
     items: list[dict] = list(data.get("ep_bulk_items") or [])
     if not items:
         return await call.answer("Videolar yuborilmagan!", show_alert=True)
+    missing = [i for i, it in enumerate(items) if it.get("episode") is None]
+    if missing:
+        await state.update_data(ep_bulk_fix_queue=missing, ep_bulk_fix_idx=0)
+        await state.set_state(AddEpisodeState.waiting_bulk_manual_ep)
+        it = items[missing[0]]
+        raw_cap = (it.get("caption") or "").strip()
+        preview = esc(raw_cap[:300]) if raw_cap else "<i>caption yo'q</i>"
+        await call.message.answer(
+            f"⚠️ <b>1/{len(missing)}</b> — bu videoda qism raqami topilmadi.\n\n"
+            f"<i>Caption:</i>\n<code>{preview}</code>\n\n"
+            "Qism raqamini kiriting (masalan <code>3</code>):",
+            parse_mode="HTML",
+            reply_markup=cancel_kb,
+        )
+        await call.answer()
+        return
     await _ep_bulk_show_preview(call.message, state)
     await call.answer()
 
@@ -5148,10 +5162,11 @@ async def ep_bulk_manual_fix(msg: Message, state: FSMContext):
     if idx >= len(queue):
         return await _ep_bulk_show_preview(msg, state)
     nxt = items[queue[idx]]
-    preview = (nxt.get("caption") or "<i>caption yo'q</i>")[:300]
+    raw_cap = (nxt.get("caption") or "").strip()
+    preview = esc(raw_cap[:300]) if raw_cap else "<i>caption yo'q</i>"
     await msg.answer(
         f"⚠️ <b>{idx + 1}/{len(queue)}</b> — qism raqami topilmadi.\n\n"
-        f"<i>Caption:</i>\n<code>{esc(preview)}</code>\n\n"
+        f"<i>Caption:</i>\n<code>{preview}</code>\n\n"
         "Qism raqamini kiriting:",
         parse_mode="HTML",
         reply_markup=cancel_kb,

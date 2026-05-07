@@ -108,14 +108,11 @@ class Anime(Base):
 
 class Series(Base):
     __tablename__ = "series"
+    __table_args__ = (UniqueConstraint("anime_id", "episode", name="uq_series_anime_episode"),)
     id = Column(Integer, primary_key=True, autoincrement=True)
     anime_id = Column(Integer, ForeignKey("animes.id", ondelete="CASCADE"))
     episode = Column(Integer, nullable=False)
     file_id = Column(String(300), nullable=False)
-    # Filler — anime asosiy syujetiga aloqasi yo'q "to'ldiruvchi" qism.
-    # Admin bulk upload'da caption'da `[FILLER]` belgisi bo'lsa avto-aniqlanadi.
-    # User filler qismni bossa: video o'rniga anime.filter_file_id ko'rsatiladi
-    # va "▶️ Keyingi qism" tugmasi bilan navbatdagi kanonik qismga o'tadi.
     is_filler = Column(Boolean, default=False, nullable=False)
     anime = relationship("Anime", back_populates="episodes")
 

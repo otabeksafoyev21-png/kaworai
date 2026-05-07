@@ -960,7 +960,9 @@ async def episode_select(call: types.CallbackQuery):
         if anime.is_pro_locked and not is_pro:
             return await call.answer("🔒 Bu kontent Pro uchun!", show_alert=True)
 
-        ep_res = await session.execute(select(Series).where(Series.anime_id == anime_id, Series.episode == episode))
+        ep_res = await session.execute(
+            select(Series).where(Series.anime_id == anime_id, Series.episode == episode).limit(1)
+        )
         ep_obj = ep_res.scalar_one_or_none()
         if not ep_obj:
             return await call.answer(f"❌ {episode}-qism topilmadi!", show_alert=True)
