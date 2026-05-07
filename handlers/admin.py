@@ -4833,7 +4833,7 @@ async def _save_episode_to_db(
         if not anime:
             return False, f"Anime ID {anime_id} topilmadi", 0, None
         existing = (
-            await session.execute(select(Series).where(Series.anime_id == anime_id, Series.episode == ep))
+            await session.execute(select(Series).where(Series.anime_id == anime_id, Series.episode == ep).limit(1))
         ).scalar_one_or_none()
         if existing is not None:
             existing.file_id = file_id
