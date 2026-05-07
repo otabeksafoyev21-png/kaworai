@@ -255,6 +255,23 @@ MIGRATIONS = [
         updated_at      TIMESTAMP DEFAULT NOW()
     )
     """,
+    # Dublikat qismlarni tozalash — faqat eng oxirgi (max id) saqlanadi
+    """
+    DELETE FROM series
+    WHERE id NOT IN (
+        SELECT MAX(id) FROM series GROUP BY anime_id, episode
+    )
+    """,
+    # Unique constraint — kelajakda dublikat bo'lishini oldini olish
+    """
+    DO $$ BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint WHERE conname = 'uq_series_anime_episode'
+        ) THEN
+            ALTER TABLE series ADD CONSTRAINT uq_series_anime_episode UNIQUE (anime_id, episode);
+        END IF;
+    END $$
+    """,
 ]
 
 

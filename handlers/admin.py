@@ -4832,17 +4832,21 @@ async def _save_episode_to_db(
         anime = await session.get(Anime, anime_id)
         if not anime:
             return False, f"Anime ID {anime_id} topilmadi", 0, None
-        existing = (
-            await session.execute(select(Series).where(Series.anime_id == anime_id, Series.episode == ep).limit(1))
-        ).scalar_one_or_none()
-        if existing is not None:
-            existing.file_id = file_id
-            # Filler bayrog'ini faqat "tepaga" siljitamiz: agar admin filler
-            # bo'lmagan video bilan upsert qilsa, eski filler statusi saqlanadi.
-            # Bu xato (yangi yuklash filler-emas, lekin eski yozuv filler ekan
-            # holatda) holatlarda admin alohida `unmark filler` qilishi kerak.
-            if is_filler:
-                existing.is_filler = True
+        rows = (
+            (
+                await session.execute(
+                    select(Series).where(Series.anime_id == anime_id, Series.episode == ep).order_by(Series.id.desc())
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if rows:
+            keep = rows[0]
+            keep.file_id = file_id
+            keep.is_filler = bool(is_filler)
+            for dup in rows[1:]:
+                await session.delete(dup)
         else:
             session.add(Series(anime_id=anime_id, episode=ep, file_id=file_id, is_filler=bool(is_filler)))
         await session.commit()
